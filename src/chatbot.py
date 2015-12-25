@@ -275,6 +275,10 @@ def self_test():
 
 
 def main(_):
+  # Make sure you can run script from any directory
+  abspath = os.path.abspath(__file__)
+  dname = os.path.dirname(abspath)
+  os.chdir(dname)  
   if FLAGS.self_test:
     self_test()
   elif FLAGS.decode:

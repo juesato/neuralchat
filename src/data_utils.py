@@ -41,6 +41,8 @@ import re
 import tarfile
 import xml.etree.ElementTree
 import random
+import time
+import sys
 
 from tensorflow.python.platform import gfile
 from six.moves import urllib
@@ -72,7 +74,21 @@ random.seed(42)
 _WMT_ENFR_TRAIN_URL = "http://www.statmt.org/wmt10/training-giga-fren.tar"
 _WMT_ENFR_DEV_URL = "http://www.statmt.org/wmt15/dev-v2.tgz"
 
-_OPEN_SUBTITLES_DATA_URL = "http://opus.lingfil.uu.se/download.php?f=OpenSubtitles/en.tar.gz"
+_OPEN_SUBTITLES_DATA_URL = "http://opus.lingfil.uu.se/download.php?f=OpenSubtitles2012/en.tar.gz"
+
+def reporthook(count, block_size, total_size):
+    global start_time
+    if count == 0:
+        start_time = time.time()
+        return
+    duration = time.time() - start_time
+    progress_size = int(count * block_size)
+    speed = int(progress_size / (1024 * duration))
+    percent = int(count * block_size * 100 / total_size)
+    sys.stdout.write("\r...%d%%, %d MB, %d KB/s, %d seconds passed" %
+                    (percent, progress_size / (1024 * 1024), speed, duration))
+    sys.stdout.flush()
+
 
 def maybe_download(directory, filename, url):
   """Download filename from url unless it's already in directory."""
@@ -82,7 +98,7 @@ def maybe_download(directory, filename, url):
   filepath = os.path.join(directory, filename)
   if not os.path.exists(filepath):
     print("Downloading %s to %s" % (url, filepath))
-    filepath, _ = urllib.request.urlretrieve(url, filepath)
+    filepath, _ = urllib.request.urlretrieve(url, filepath, reporthook)
     statinfo = os.stat(filepath)
     print("Succesfully downloaded", filename, statinfo.st_size, "bytes")
   return filepath
@@ -117,13 +133,22 @@ def parse_open_subtitles_xml(xml_path):
   """Get a list of utterances from OpenSubtitles transcript at xml_path
   Returns: a list of lists, where each utterance is a list of tokens
   """
-  e = xml.etree.ElementTree.parse(xml_path).getroot()
-  utterances = []
-  for s in e.findall('s'):
-    utterance = [w.text.encode('utf-8') for w in s.findall('w')]
-    utterances.append(utterance)
-  return utterances
+  def encode_utf8(s):
+    if s:
+      return s.encode('utf-8')
+    return ''
 
+  try:
+    e = xml.etree.ElementTree.parse(xml_path).getroot()
+    utterances = []
+    for s in e.findall('s'):
+      utterance = [encode_utf8(w.text) for w in s.findall('w')]
+      utterances.append(utterance)
+    return utterances
+  except:
+    print("Unable to parse", xml_path)
+    print("Unexpected error:", sys.exc_info()[0])
+    return []
 
 def add_data_points_to_file(transcript_xml, inputs_file, targets_file):
   """Parses XML of file at location transcript_xml. Each pair of consecutive sentences
@@ -220,10 +245,10 @@ def get_open_subtitles_data_set(data_dir):
                                  _OPEN_SUBTITLES_DATA_URL)
     print("Extracting tar file %s" % corpus_file)
     with tarfile.open(corpus_file, "r") as corpus_tar:
-      # Extracts everything to a folder called OpenSubtitles
+      # Extracts everything to a folder called OpenSubtitles. (assumption)
       corpus_tar.extractall(data_dir)
 
-  return process_open_subtitles_data_set(data_dir + '/OpenSubtitles', data_dir)
+  return process_open_subtitles_data_set(data_dir + '/OpenSubtitles2012', data_dir)
 
 
 def create_vocabulary(vocabulary_path, data_dir, max_vocabulary_size,
@@ -266,7 +291,7 @@ def create_vocabulary(vocabulary_path, data_dir, max_vocabulary_size,
       vocab_list = _START_VOCAB + sorted(vocab, key=vocab.get, reverse=True)
       if len(vocab_list) > max_vocabulary_size:
         vocab_list = vocab_list[:max_vocabulary_size]
-      with gfile.GFile(vocabulary_path, mode="w") as vocab_file:
+      with gfile.GFile(vocabulary_path, mode="w") as vocab_file:	
         for w in vocab_list:
           vocab_file.write(w + "\n")
 
